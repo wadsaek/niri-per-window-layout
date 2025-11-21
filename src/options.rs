@@ -1,5 +1,5 @@
 // read and represent the options file
-// located at ~/.config/hyprland-per-window-layout/options.toml
+// located at ~/.config/niri-per-window-layout/options.toml
 
 use std::fs::File;
 
@@ -9,17 +9,16 @@ use toml::Table;
 
 #[derive(Deserialize, Debug)]
 pub struct Options {
-    pub keyboards: Vec<String>, // list of keyboards to switch layouts on
-    pub default_layouts: HashMap<u16, Vec<String>>, // default layouts for window classes
+    pub default_layouts: HashMap<u64, Vec<String>>, // default layouts for window classes
 }
 
 // function to read the options file toml
 pub fn read_options() -> Options {
     // get the path to the options file
-    // in $HOME/.config/hyprland-per-window-layout/options.toml
+    // in $HOME/.config/niri-per-window-layout/options.toml
     let options_path = dirs::config_dir()
         .unwrap()
-        .join("hyprland-per-window-layout")
+        .join("niri-per-window-layout")
         .join("options.toml");
     // read the file contents if it exists
     // ignore if it doesn't exist
@@ -31,7 +30,6 @@ pub fn read_options() -> Options {
                 Err(e) => {
                     println!("Error reading options.toml: {e}");
                     return Options {
-                        keyboards: Vec::new(),
                         default_layouts: HashMap::new(),
                     };
                 }
@@ -41,7 +39,6 @@ pub fn read_options() -> Options {
                 Err(e) => {
                     println!("Error parsing options.toml: {e}");
                     return Options {
-                        keyboards: Vec::new(),
                         default_layouts: HashMap::new(),
                     };
                 }
@@ -53,7 +50,7 @@ pub fn read_options() -> Options {
                     if let Some(first_layout) = default_layouts_array.first() {
                         if let Some(layout_table) = first_layout.as_table() {
                             for (key, value) in layout_table.iter() {
-                                if let Ok(key_num) = key.parse::<u16>() {
+                                if let Ok(key_num) = key.parse::<u64>() {
                                     if let Some(value_array) = value.as_array() {
                                         let layout_vec: Vec<String> = value_array
                                             .iter()
@@ -77,7 +74,6 @@ pub fn read_options() -> Options {
                 }
             }
             return Options {
-                keyboards,
                 default_layouts: map,
             };
         }
@@ -86,7 +82,6 @@ pub fn read_options() -> Options {
         }
     };
     Options {
-        keyboards: Vec::new(),
         default_layouts: HashMap::new(),
     }
 }

@@ -132,20 +132,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
-name = "hyprland-per-window-layout"
-version = "0.2.17"
-dependencies = [
- "dirs",
- "env_logger",
- "lazy_static",
- "log",
- "nix",
- "serde",
- "serde_json",
- "toml",
-]
-
-[[package]]
 name = "indexmap"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -232,6 +218,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "niri-per-window-layout"
+version = "0.2.17"
+dependencies = [
+ "dirs",
+ "env_logger",
+ "lazy_static",
+ "log",
+ "nix",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

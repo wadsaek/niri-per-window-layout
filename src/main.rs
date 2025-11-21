@@ -1,43 +1,51 @@
-use std::env; // read env variables
+use std::io;
 use std::io::BufRead; // read unix socket
-use std::io::BufReader; // read unix socket
-use std::os::unix::net::UnixStream;
+use std::io::BufReader;
+use std::process::Stdio;
 
-mod hyprland_event; // work with message from socket
-use hyprland_event::{event, fullfill_keyboards_list, fullfill_layouts_list, hyprctl};
+mod niri_event; // work with message from socket
+use niri_event::{event, fullfill_layouts_list, niri_msg};
 
-mod options; // read options.toml
+mod options;
+// read options.toml
 use options::read_options;
 
 mod single; // a struct representing one running instance
 use single::SingleInstance;
 
-use serde_json::Value; // json parsed
+use serde_json::Value;
 
-// listen Hyprland socket
-fn listen(socket_addr: String) -> std::io::Result<()> {
-    let stream = match UnixStream::connect(socket_addr) {
-        Ok(stream) => stream,
+use crate::niri_event::handle_layouts;
+use crate::niri_event::niri_msg_raw;
+
+// listen on Niri event stream
+fn listen() -> io::Result<()> {
+    let child = match niri_msg_raw(&["-j","event-stream"])
+        .stdout(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
         Err(e) => {
             println!("Couldn't connect: {e:?}");
             return Err(e);
         }
     };
-    let mut reader = BufReader::new(stream);
-    let opt = read_options();
-    if !opt.keyboards.is_empty() {
-        for keyboard in opt.keyboards.iter() {
-            fullfill_keyboards_list(keyboard.to_string());
-            log::debug!("Keyboard added: {}", keyboard);
+    let output = match child.stdout {
+        Some(stdout) => stdout,
+        None => {
+            println!("Couldn't get child's stdout");
+            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "no stdout"));
         }
-    }
-    loop {
+    };
+    let mut reader = BufReader::new(output);
+    let opt = read_options();
+    'main_loop :loop {
         // read message from socket
         let mut buf: Vec<u8> = vec![];
         let readed = match reader.read_until(b'\n', &mut buf) {
             Ok(size) => size,
             Err(e) => {
-                log::warn!("Error reading from socket: {}", e);
+                log::warn!("Error reading event: {}", e);
                 break Err(e);
             }
         };
@@ -45,20 +53,34 @@ fn listen(socket_addr: String) -> std::io::Result<()> {
             break Ok(());
         }
         let data = String::from_utf8_lossy(&buf);
-        let data_parts: Vec<&str> = data.trim().split(">>").collect();
-        if data_parts.len() > 1 {
-            event(data_parts[0], data_parts[1], &opt)
-        }
+        if data.trim().is_empty() { continue 'main_loop}
+        let data: Value = match serde_json::from_str(&data) {
+            Ok(data) => data,
+            Err(e) => {
+                println!("Failed to parse an event, {e}");
+                return Err(e.into());
+            }
+        };
+        let (name, data) = data
+            .as_object()
+            .ok_or(io::Error::new(io::ErrorKind::InvalidData, "invalid data"))?
+            .iter()
+            .next()
+            .ok_or(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "event contains no fields",
+            ))?;
+         event(name, data, &opt)
     }
 }
 
-// get keyboards count listed in hyprland conf file (input section)
+// get layouts listed in niri conf file and push the default one to CURRENT_LAYOUT
 // return -1 if failed
 fn get_kb_layouts_count() -> i16 {
     // get layouts list from hyprctl cli call
-    match hyprctl(["getoption", "input:kb_layout", "-j"].to_vec()) {
+    match niri_msg(&["-j", "keyboard-layouts"]) {
         Ok(output) => {
-            log::debug!("input:kb_layout: {}", output);
+            log::debug!("keyboard-layouts: {}", output);
             // parse the string from stdin into serde_json::Value
             let json: Value = match serde_json::from_str(&output) {
                 Ok(json) => json,
@@ -67,20 +89,10 @@ fn get_kb_layouts_count() -> i16 {
                     return -1;
                 }
             };
-            if json.is_null() || json["str"].is_null() {
-                return -1;
-            }
-            let kb_layout = str::replace(json["str"].to_string().trim(), "\"", "");
-
-            if !kb_layout.is_empty() {
-                let items: Vec<&str> = kb_layout.split(",").collect();
-                items.len() as i16
-            } else {
-                0
-            }
+            handle_layouts(json)
         }
         Err(_e) => {
-            println!("Failed to get option from hyprctl");
+            println!("Failed to get layouts from niri");
             0
         }
     }
@@ -102,88 +114,43 @@ fn get_kb_layouts_count_retry() -> i16 {
     }
 }
 
-// check kb_file option is set in hyprland conf file
 fn kb_file_isset() -> bool {
-    // get layouts list from hyprctl cli call
-    match hyprctl(["getoption", "input:kb_file", "-j"].to_vec()) {
-        Ok(output) => {
-            log::debug!("input:kb_file: {}", output);
-            // parse the string from stdin into serde_json::Value
-            let json: Value = match serde_json::from_str(&output) {
-                Ok(json) => json,
-                Err(e) => {
-                    log::warn!("Failed to parse JSON: {}", e);
-                    return false;
-                }
-            };
-            if json["str"].is_null() {
-                return false;
-            }
-            let value = str::replace(json["str"].to_string().trim(), "\"", "");
-            value != "[[EMPTY]]"
-        }
-        Err(_e) => {
-            println!("Failed to get option from hyprctl");
-            false
-        }
-    }
+    // TODO: find a way to get the kb file
+
+    false
+
+    // match hyprctl(["getoption", "input:kb_file", "-j"].to_vec()) {
+    //     Ok(output) => {
+    //         log::debug!("input:kb_file: {}", output);
+    //         // parse the string from stdin into serde_json::Value
+    //         let json: Value = match serde_json::from_str(&output) {
+    //             Ok(json) => json,
+    //             Err(e) => {
+    //                 log::warn!("Failed to parse JSON: {}", e);
+    //                 return false;
+    //             }
+    //         };
+    //         if json["str"].is_null() {
+    //             return false;
+    //         }
+    //         let value = str::replace(json["str"].to_string().trim(), "\"", "");
+    //         value != "[[EMPTY]]"
+    //     }
+    //     Err(_e) => {
+    //         println!("Failed to get option from hyprctl");
+    //         false
+    //     }
+    // }
 }
 
 // get default layout from cli command "hyprctl devices -j"
-// value of ['keyboards'][0]['active_keymap']
-fn get_default_layout_name() -> bool {
-    match hyprctl(["devices", "-j"].to_vec()) {
-        Ok(output) => {
-            // parse the string from stdin into serde_json::Value
-            let json: Value = match serde_json::from_str(&output) {
-                Ok(json) => json,
-                Err(e) => {
-                    log::warn!("Failed to parse JSON: {}", e);
-                    return false;
-                }
-            };
-            let keyboards = &json["keyboards"];
-            log::debug!("keyboards: {}", keyboards);
-            if keyboards.is_null() {
-                log::warn!("No keyboards found");
-                return false;
-            }
-            let keyboards_array = match keyboards.as_array() {
-                Some(arr) => arr,
-                None => {
-                    log::warn!("Keyboards is not an array");
-                    return false;
-                }
-            };
-            if keyboards_array.is_empty() {
-                log::warn!("No keyboards found");
-                return false;
-            }
-            let kb_layout = str::replace(
-                keyboards_array[0]["active_keymap"].to_string().trim(),
-                "\"",
-                "",
-            );
-            if !kb_layout.is_empty() {
-                fullfill_layouts_list(kb_layout.to_string());
-                true
-            } else {
-                log::warn!("Keyboard layouts not found");
-                false
-            }
-        }
-        Err(_e) => {
-            println!("Failed to get devices from hyprctl");
-            false
-        }
-    }
-}
 
 // read env variables and listen Hyprland unix socket
 fn main() {
     // to see logs in output: add env RUST_LOG='debug'
     env_logger::init();
-    let instance_sock = SingleInstance::new("hyprland-per-window-layout").unwrap();
+    let instance_sock = SingleInstance::new("niri-per-window-layout").unwrap();
+
     if !instance_sock.is_single() {
         println!("Another instance is running.");
         std::process::exit(1);
@@ -192,43 +159,15 @@ fn main() {
     let layouts_found = get_kb_layouts_count_retry();
 
     if layouts_found < 2 && !kb_file_isset() {
-        println!("Fatal error: You need to configure layouts on Hyprland");
-        println!("Add kb_layout option to input group in your hyprland.conf");
+        println!("Fatal error: You need to configure layouts on Niri");
+        println!("Add kb_layout option to input group in your config.kdl");
         println!("You don't need this program if you have only 1 keyboard layout");
         std::process::exit(1);
     }
-    let mut attempts = 0;
-    const MAX_ATTEMPTS: u32 = 30; // 30 second timeout
-    while !get_default_layout_name() {
-        // repeat until success
-        attempts += 1;
-        if attempts >= MAX_ATTEMPTS {
-            println!("Timeout: Could not get default layout after {MAX_ATTEMPTS} seconds");
-            std::process::exit(1);
-        }
-        std::thread::sleep(std::time::Duration::from_secs(1));
-    }
 
-    match env::var("HYPRLAND_INSTANCE_SIGNATURE") {
-        Ok(hypr_inst) => {
-            let default_socket = format!("/tmp/hypr/{hypr_inst}/.socket2.sock"); // for backawards compatibility
-            let socket = match env::var("XDG_RUNTIME_DIR") {
-                Ok(runtime_dir) => {
-                    match std::fs::metadata(format!("{runtime_dir}/hypr/{hypr_inst}/.socket2.sock"))
-                    {
-                        Ok(_) => format!("{runtime_dir}/hypr/{hypr_inst}/.socket2.sock"),
-                        Err(..) => default_socket,
-                    }
-                }
-                Err(..) => default_socket,
-            };
-            // listen Hyprland socket
-            match listen(socket) {
-                Ok(()) => {}
-                Err(e) => log::warn!("Error {e}"),
-            }
-        }
-        Err(e) => println!("Fatal Error: Hyprland is not run. {e}"),
+    match listen() {
+        Ok(()) => {}
+        Err(e) => log::warn!("Error {e}"),
     }
     std::process::exit(1);
 }

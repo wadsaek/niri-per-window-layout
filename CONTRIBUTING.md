@@ -1,4 +1,4 @@
-# Contributing to hyprland-per-window-layout
+# Contributing to niri-per-window-layout
 
 Thank you for your interest in contributing! ❤️
 
@@ -7,14 +7,14 @@ Thank you for your interest in contributing! ❤️
 ### Prerequisites
 
 - Rust (stable channel)
-- Hyprland compositor running
-- At least 2 keyboard layouts configured in hyprland.conf
+- Niri compositor running
+- At least 2 keyboard layouts configured in config.kdl
 
 ### Building
 
 ```bash
-git clone https://github.com/coffebar/hyprland-per-window-layout.git
-cd hyprland-per-window-layout
+git clone https://github.com/wadsaek/niri-per-window-layout.git
+cd niri-per-window-layout
 cargo build --release
 ```
 
@@ -22,10 +22,10 @@ cargo build --release
 
 ```bash
 # Stop any existing instance
-pkill hyprland-per-window-layout
+pkill niri-per-window-layout
 
 # Run your development build
-RUST_LOG=debug ./target/release/hyprland-per-window-layout
+RUST_LOG=debug ./target/release/niri-per-window-layout
 ```
 
 ## Code Style
@@ -40,7 +40,7 @@ RUST_LOG=debug ./target/release/hyprland-per-window-layout
 2. Run with `RUST_LOG=debug` to see debug output
 3. Test switching between windows and verify layouts change correctly
 4. Test with different applications (terminal, browser, chat apps)
-5. Verify the daemon handles Hyprland restarts gracefully
+5. Verify the daemon handles Niri restarts gracefully
 
 ## Submitting Changes
 
@@ -68,7 +68,7 @@ Use clear, descriptive commit messages:
 ### Bug Reports
 
 - Check if the issue already exists
-- Include Hyprland version (`hyprctl version`)
+- Include Niri version (`niri --version`)
 - Include debug logs (`RUST_LOG=debug`)
 - Describe steps to reproduce
 
